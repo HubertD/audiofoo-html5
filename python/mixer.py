@@ -13,6 +13,7 @@ class Component(ApplicationSession):
 
 		def on_slider(id, value):
 			self.sliderValues[id] = value
+			print id, value
 
 		def on_sliders_request():
 			if len(self.sliderValues)>0:

@@ -1,9 +1,7 @@
 <html>
  <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <script src="js/jquery.min.js"></script>
-  <script src="js/jquery-ui.min.js"></script>
-  <script src="js/jquery.ui.touch-punch.min.js"></script>
+  <script src="js/jquery-2.1.1.min.js"></script>
   <script src="js/autobahn.min.js"></script>
   <style>
 
@@ -96,6 +94,10 @@ $(function() {
 	
 	function setSliderValue(id, valuePercent, doUpdateUI, doUpdateOthers) {
 		var el = $("#"+id);
+		
+		if (valuePercent < 0) { valuePercent = 0; }
+		if (valuePercent > 1) { valuePercent = 1; }
+		
 		el.data("value", valuePercent);
 
 		if (doUpdateUI) {
@@ -125,28 +127,83 @@ $(function() {
 		return el.data("value");
 	}
 	
-	function getSliderPositionPercent(el, ui) {
-		var sliderHeight = el.parent().height();
-		var indicatorHeight = el.height();
-		
-		var pos = ui.position.top;
-		var maxPos = sliderHeight - indicatorHeight;
-		
-		return 1 - (pos / maxPos);
-	}
-	
 	$(".slider").html('<div class="bg"></div><div class="indicator"></div>');
 	$(".knob").html('<div class="wheel"><div class="indicator"></div></div>');
 
+	
+	var touchMoveEvents = {};
+	var mouseMoveEvents = {};
+	function processTouchMove() {
 
-	$(".slider .indicator").draggable({
-		containment:"parent",
-		drag: function(ev, ui) {
-			setSliderValue($(this).parent().attr("id"), getSliderPositionPercent($(this), ui), false, true);
-		},
-		stop: function(ev, ui) {
-			setSliderValue($(this).parent().attr("id"), getSliderPositionPercent($(this), ui), true, true);
+		for (var obj in touchMoveEvents) { 
+			var ev = touchMoveEvents[obj];
+			var indicator = $(ev.target);
+			var slider = indicator.parent();
+			var maxPos = slider.height() - indicator.height();
+		
+			var touch = ev.originalEvent.targetTouches[0];
+			var deltaY = slider.data("touchstartpos") - touch.pageY;
+			var deltaPercent = deltaY / maxPos;
+		
+			setSliderValue(slider.attr("id"), slider.data("touchstartpos_value") + deltaPercent, true, true);
 		}
+		
+		for (var obj in mouseMoveEvents) { 
+			var ev = mouseMoveEvents[obj];
+			var indicator = $(ev.target);
+			var slider = indicator.parent();
+			var maxPos = slider.height() - indicator.height();
+		
+			var deltaY = slider.data("mousedownpos") - ev.pageY;
+			var deltaPercent = deltaY / maxPos;
+		
+			setSliderValue(slider.attr("id"), slider.data("mousedownpos_value") + deltaPercent, true, true);
+		}
+		
+		touchMoveEvents = {};
+		mouseMoveEvents = {};
+		window.requestAnimationFrame(processTouchMove);
+	}
+	window.requestAnimationFrame(processTouchMove);
+	
+	$(".slider .indicator").on({
+		"touchstart": function(ev) {
+			var slider = $(ev.target).parent();
+			var touch = ev.originalEvent.targetTouches[0];
+			slider.data("touchstartpos", touch.pageY);
+			slider.data("touchstartpos_value", getSliderValue(slider.attr("id")));
+		},
+		"touchmove":  function(ev) {
+			var slider = $(ev.target).parent();
+			touchMoveEvents[slider.attr("id")] = ev;
+		}
+	});
+	
+	$(".slider .indicator").mousedown(function(ev){
+		var slider = $(ev.target).parent();
+		slider.data("mousedownpos", ev.pageY);
+		slider.data("mousedownpos_value", getSliderValue(slider.attr("id")));
+	});
+	
+	$(".slider .indicator").mousemove(function(ev){ 
+		var slider = $(ev.target).parent();
+		if (slider.data("mousedownpos")) {
+			//mouseMoveEvents[slider.attr("id")] = ev;
+			var indicator = $(ev.target);
+			var slider = indicator.parent();
+			var maxPos = slider.height() - indicator.height();
+		
+			var deltaY = slider.data("mousedownpos") - ev.pageY;
+			var deltaPercent = deltaY / maxPos;
+		
+			setSliderValue(slider.attr("id"), slider.data("mousedownpos_value") + deltaPercent, true, true);
+			
+		}
+	});
+	
+	$(".slider .indicator").mouseup(function(ev){ 
+		var slider = $(ev.target).parent();
+		slider.data("mousedownpos", null);		
 	});
 	
 	$(".slider").bind('mousewheel DOMMouseScroll', function(e) {
@@ -168,17 +225,12 @@ $(function() {
 	$(".slider, .knob").each(function(el) {
 		setSliderValue(this.id, 0.50, true, false);
 	});
-	
-
-    
-    
     
     
     
 	var wamp = new autobahn.Connection({url: 'ws://192.168.178.21:8080/ws', realm: 'mixer'});
 
 	function onWampSliderEvent(args, kwargs, details) {
-		console.log(kwargs);
 		setSliderValue(kwargs["id"], kwargs["value"], true, false);
 	}
 	
@@ -197,7 +249,6 @@ $(function() {
 
 		session.subscribe('audiofoo.sliders', function(args, kwargs, details) {
 			var data = kwargs["data"];
-			console.log(data);
 			for (var id in data) {
 				setSliderValue(id, data[id], true, false);
 			}
