@@ -1,0 +1,246 @@
+<html>
+ <head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <script src="js/jquery.min.js"></script>
+  <script src="js/jquery-ui.min.js"></script>
+  <script src="js/jquery.ui.touch-punch.min.js"></script>
+  <script src="js/autobahn.min.js"></script>
+  <style>
+
+body {
+	background-color:#444;
+}
+
+div.slider {
+	position:relative;
+	width:50px;
+	height:100%;
+	background-color:#333;
+	float:left;
+	margin:0 30px;
+}
+
+div.slider div.bg {
+	position:absolute;
+	left:50%;
+	margin-left:-10px;
+	width:20px;
+	height:100%;
+	background-color:#888;
+}
+
+div.slider div.indicator {
+	position:absolute;
+	width:100%;
+	bottom:0;
+	height:80px;
+	background-color:#BBB;
+	background-image:url(img/fader.png);
+	background-repeat:no-repeat;
+}
+
+.knob {
+	position:relative;
+	width:80px;
+	height:80px;
+	background-color:#555; 
+	float:left;
+	margin:10px;
+}
+
+.knob .wheel {
+	width:100%;
+	height:100%;
+	background-color:#AAA;
+	border-radius:50%;
+}
+
+.knob .indicator {
+	position:absolute;
+	left:50%;
+	top:0;
+	margin-left:-8%;
+	width:16%;
+	height:40%;
+	background-color:#333;
+}
+  </style>
+ </head>
+ <body>
+  <div id="vol1" class="slider"></div>
+  <div id="vol2" class="slider"></div>
+  <div id="vol3" class="slider"></div>
+  <div id="vol4" class="slider"></div>
+  <div id="vol5" class="slider"></div>
+  <div id="vu" style="height:100%;width:20px;position:relative;background-color:black;float:left;">
+  	<div class="indicator" style="position:absolute;bottom:0;width:100%;height:100px;background-color:green"></div>
+  </div>
+  
+  <div id="knob1" class="knob"></div>
+  <div id="knob2" class="knob"></div>
+  <div id="knob3" class="knob"></div>
+  <div id="knob4" class="knob"></div>
+  <div id="knob5" class="knob"></div>
+  <div id="t" style="float:left">
+  Hallo
+  </div>
+  
+<script>
+$(function() {
+
+	document.body.addEventListener('touchmove', function(event) {
+		event.preventDefault();
+	}, false); 
+
+	var sendSliderValue = function(id, value) {};
+	
+	function setSliderValue(id, valuePercent, doUpdateUI, doUpdateOthers) {
+		var el = $("#"+id);
+		el.data("value", valuePercent);
+
+		if (doUpdateUI) {
+		
+			if (el.hasClass("slider")) {
+				var indicator = el.find(".indicator");
+				var maxHeight = el.height() - indicator.height();
+				indicator.removeAttr("style").css("bottom", valuePercent*maxHeight + "px");
+			}
+			
+			if (el.hasClass("knob")) {
+				var wheel = el.find(".wheel");
+				var rot =  270*valuePercent - 130;
+				wheel.css("transform","rotate(" + rot + "deg)");
+				wheel.css("-webkit-transform","rotate(" + rot + "deg)");
+			}
+
+		}
+		
+		if (doUpdateOthers) {
+			sendSliderValue(id, valuePercent);
+		}
+	}
+	
+	function getSliderValue(id) {
+		var el = $("#"+id);
+		return el.data("value");
+	}
+	
+	function getSliderPositionPercent(el, ui) {
+		var sliderHeight = el.parent().height();
+		var indicatorHeight = el.height();
+		
+		var pos = ui.position.top;
+		var maxPos = sliderHeight - indicatorHeight;
+		
+		return 1 - (pos / maxPos);
+	}
+	
+	$(".slider").html('<div class="bg"></div><div class="indicator"></div>');
+	$(".knob").html('<div class="wheel"><div class="indicator"></div></div>');
+
+
+	$(".slider .indicator").draggable({
+		containment:"parent",
+		drag: function(ev, ui) {
+			setSliderValue($(this).parent().attr("id"), getSliderPositionPercent($(this), ui), false, true);
+		},
+		stop: function(ev, ui) {
+			setSliderValue($(this).parent().attr("id"), getSliderPositionPercent($(this), ui), true, true);
+		}
+	});
+	
+	$(".slider").bind('mousewheel DOMMouseScroll', function(e) {
+		var value = getSliderValue(this.id);
+		value -= (e.originalEvent.detail / 3) / 100;
+		if (value<0) { value = 0; }
+		if (value>1) { value = 1; }
+		setSliderValue(this.id, value, true, true);
+    });
+
+	$(".knob").bind('mousewheel DOMMouseScroll', function(e) {
+		var value = getSliderValue(this.id);
+		value -= (e.originalEvent.detail / 1.5) / 100;
+		if (value<0) { value = 0; }
+		if (value>1) { value = 1; }
+		setSliderValue(this.id, value, true, true);
+    });
+    
+	$(".slider, .knob").each(function(el) {
+		setSliderValue(this.id, 0.50, true, false);
+	});
+	
+
+    
+    
+    
+    
+    
+	var wamp = new autobahn.Connection({url: 'ws://192.168.178.21:8080/ws', realm: 'mixer'});
+
+	function onWampSliderEvent(args, kwargs, details) {
+		console.log(kwargs);
+		setSliderValue(kwargs["id"], kwargs["value"], true, false);
+	}
+	
+
+	wamp.onopen = function (session) {
+	
+		sendSliderValue = function(id, value) {
+			session.publish("audiofoo.slider", [], {"id":id, "value":value});
+		};
+		
+		session.subscribe('audiofoo.slider', onWampSliderEvent).then(
+			function(subscription) {},
+			function(error) {}
+		);
+
+
+		session.subscribe('audiofoo.sliders', function(args, kwargs, details) {
+			var data = kwargs["data"];
+			console.log(data);
+			for (var id in data) {
+				setSliderValue(id, data[id], true, false);
+			}
+		});
+		
+		var vumax = {
+			date: new Date(),
+			value: 0
+		};
+		
+		session.subscribe('audiofoo.vumeter', function(args, kwargs, details) {
+			var vu = kwargs["vu"];
+			if (vu > vumax.value) {
+				vumax.value = vu;
+				vumax.date = new Date();
+			}
+			
+		});
+		
+		function animateVU(ts) {
+			var value = vumax.value;
+			var age_ms = (new Date()) - vumax.date;
+			if (age_ms > 200) {
+				value -= value / 20;
+			}
+			vumax.value = value;
+			
+			var maxHeight = $("#vu").height();
+			value = Math.max(Math.min(value*maxHeight, maxHeight),0)
+			//$("#t").text(value);
+			$("#vu").find(".indicator").css("height", value + "px");
+			
+			window.requestAnimationFrame(animateVU);
+		};
+		
+		window.requestAnimationFrame(animateVU);
+
+		session.publish("audiofoo.sliders.request", [], {});
+	};
+
+	wamp.open();
+    
+});
+</script>
+ </body>
+</html>
